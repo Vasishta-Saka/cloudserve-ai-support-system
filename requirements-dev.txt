@@ -1,0 +1,15 @@
+# ==============================================================================
+# CloudServe AI Support System - Development & Testing Dependencies
+# Inherits all base runtime dependencies from requirements.txt.
+# ==============================================================================
+
+-r requirements.txt
+
+# Testing Frameworks
+pytest==9.2.0
+pytest-cov==7.1.0
+pytest-mock==3.17.0
+
+# Code Quality, Formatting & Static Type Checking
+ruff==0.17.5
+mypy==2.4.1

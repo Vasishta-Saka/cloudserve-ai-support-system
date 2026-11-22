@@ -1,0 +1,38 @@
+# ==============================================================================
+# CloudServe AI Support System - Pinned Runtime Dependencies
+# Python requirement: >=3.10
+# Generated based on pyproject.toml and the verified working environment.
+# ==============================================================================
+
+# Web Framework & Server
+fastapi==0.163.1
+uvicorn[standard]==0.54.0
+
+# Data Validation & Settings Management
+pydantic==2.14.3
+pydantic-settings==2.16.3
+
+# Database & ORM (SQLite persistence)
+sqlalchemy==2.1.9
+
+# Vector Database & Embeddings
+chromadb==1.5.9
+sentence-transformers==6.3.0
+
+# LLM Frameworks & Providers
+langchain==1.5.0
+langchain-community==0.4.2
+langchain-groq==1.2.1
+langgraph==1.2.22
+groq==1.7.0
+
+# HTTP Clients & Networking
+httpx==0.28.1
+requests==2.34.2
+
+# Scientific Computing & Machine Learning
+numpy==2.5.5
+scikit-learn==1.9.1
+
+# Templating
+jinja2==3.1.6

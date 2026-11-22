@@ -1,0 +1,2 @@
+# Validation dataset containing ground-truth evaluation data.
+# STRICT RULE: Must NEVER be accessed by src/cloudserve runtime code.
