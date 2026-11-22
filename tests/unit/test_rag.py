@@ -7,6 +7,7 @@ All tests run 100% offline using deterministic mock embeddings.
 """
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -470,9 +471,58 @@ class TestRetrievalEvaluationMetrics:
 class TestSentenceTransformerAdapter:
     """Unit tests for production SentenceTransformerEmbeddingAdapter."""
 
-    def test_sentence_transformer_adapter_offline_loading_and_dimension(self) -> None:
+    def test_sentence_transformer_adapter_offline_loading_and_dimension(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Verify SentenceTransformerEmbeddingAdapter loads offline and produces 384-d vectors."""
+        import numpy as np
+        import sentence_transformers
+
         from cloudserve.rag.indexer import SentenceTransformerEmbeddingAdapter
+
+        recorded_init: dict[str, Any] = {}
+        recorded_encode: dict[str, Any] = {}
+
+        class FakeSentenceTransformer:
+            """Mock SentenceTransformer recording calls and returning deterministic vectors."""
+
+            def __init__(
+                self,
+                model_name: str,
+                device: str | None = None,
+                local_files_only: bool | None = None,
+                **kwargs: Any,
+            ) -> None:
+                self.model_name = model_name
+                self.device = device
+                self.local_files_only = local_files_only
+                self.extra_kwargs = kwargs
+                recorded_init["model_name"] = model_name
+                recorded_init["device"] = device
+                recorded_init["local_files_only"] = local_files_only
+                recorded_init["kwargs"] = kwargs
+
+            def encode(
+                self,
+                sentences: list[str],
+                normalize_embeddings: bool = True,
+                show_progress_bar: bool = False,
+                **kwargs: Any,
+            ) -> np.ndarray:
+                recorded_encode["sentences"] = sentences
+                recorded_encode["normalize_embeddings"] = normalize_embeddings
+                recorded_encode["show_progress_bar"] = show_progress_bar
+                recorded_encode["kwargs"] = kwargs
+
+                num_docs = len(sentences)
+                rng = np.random.RandomState(42)
+                vectors = rng.standard_normal((num_docs, 384)).astype(np.float32)
+                if normalize_embeddings:
+                    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+                    vectors = (vectors / np.maximum(norms, np.float32(1e-12))).astype(np.float32)
+                return vectors
+
+        monkeypatch.setattr(sentence_transformers, "SentenceTransformer", FakeSentenceTransformer)
 
         adapter = SentenceTransformerEmbeddingAdapter(
             model_name="sentence-transformers/all-MiniLM-L6-v2",
@@ -482,21 +532,37 @@ class TestSentenceTransformerAdapter:
         cfg = adapter.get_config()
         assert cfg["model_name"] == "sentence-transformers/all-MiniLM-L6-v2"
         assert cfg["local_files_only"] is True
+        assert cfg["device"] is None
 
         # Roundtrip config build
         reconstructed = SentenceTransformerEmbeddingAdapter.build_from_config(cfg)
+        assert reconstructed.name() == "sentence_transformer_adapter"
         assert reconstructed.model_name == adapter.model_name
         assert reconstructed.local_files_only is True
+        assert reconstructed.device == adapter.device
 
         # Generate embeddings offline
         test_docs = ["First test document for embeddings.", "Second test document."]
         vectors = adapter(test_docs)
+
+        # Verify mocked model instantiation parameters
+        assert "model_name" in recorded_init
+        assert recorded_init["model_name"] == "sentence-transformers/all-MiniLM-L6-v2"
+        assert recorded_init["local_files_only"] is True
+        assert recorded_init["device"] is None
+
+        # Verify encode invocation arguments
+        assert "sentences" in recorded_encode
+        assert recorded_encode["sentences"] == test_docs
+        assert recorded_encode["normalize_embeddings"] is True
+        assert recorded_encode["show_progress_bar"] is False
+
+        # Verify dimension and counts
         assert len(vectors) == 2
         assert len(vectors[0]) == 384
         assert len(vectors[1]) == 384
-        # Verify finite numbers
-        import numpy as np
 
+        # Verify finite numbers
         assert np.all(np.isfinite(vectors[0]))
         assert np.all(np.isfinite(vectors[1]))
 
