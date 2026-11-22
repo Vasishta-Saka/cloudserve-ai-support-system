@@ -141,14 +141,14 @@ flowchart TD
 ## 6. Prerequisites & Environment Setup
 
 > [!NOTE]
-> **Code-Only Release Notice (Dataset Decoupling):**  
-> To respect copyright and redistribution terms, this public repository provides the complete, production-grade source code, configuration, testing framework, and evaluation pipelines of the CloudServe platform, but **excludes the proprietary course benchmark datasets** (`data/kb/documentation.json`, `data/dev/development_tickets.json`, `data/val/validation_tickets.json`, and `data/val/ground_truth_responses.json`).
->
-> Included for immediate verification and smoke testing are:
-> - **Synthetic smoke fixtures:** `data/dev/manual_smoke_1.json` (1-ticket smoke test) and `data/dev/manual_smoke_5.json` (5-ticket multi-intent smoke test).
-> - **Fully self-contained automated unit tests:** All 452 unit tests execute independently using in-memory mock fixtures without requiring local knowledge base files or external database state.
->
-> For production deployment or evaluation against your own enterprise documentation, supply your custom knowledge base via `python scripts/index_kb.py --kb-path <path_to_kb.json>`.
+> **Self-Contained Repository & Bundled Datasets:**
+> This repository is fully self-contained with all production source code, evaluation harnesses, synthetic smoke fixtures, and official benchmark datasets:
+> - **Knowledge Base (`data/kb/documentation.json`):** 29 technical documentation articles across 10 platform categories.
+> - **Development Dataset (`data/dev/development_tickets.json`):** 500 multi-channel tickets with verified ground-truth routing labels.
+> - **Validation Dataset (`data/val/validation_tickets.json`):** 80 multi-channel validation tickets for generalization testing.
+> - **Ground Truth Reference Responses (`data/val/ground_truth_responses.json`):** Contains 200 gold-standard reference responses corresponding exclusively to development tickets (`DEV-xxxx`), preserved under `data/val/` per existing project structure. These provide answer-quality evaluation coverage for development runs only, and do not cover the 80-ticket validation dataset (`VAL-xxxx`).
+> - **Synthetic Smoke Fixtures (`data/dev/manual_smoke_1.json`, `data/dev/manual_smoke_5.json`):** Lightweight fixtures for fast offline smoke verification.
+> - **Fully Self-Contained Unit Tests:** The automated unit test suite executes 100% offline using in-memory mock fixtures without external network access or pre-existing vector stores.
 
 ### 6.1 Prerequisites
 - **Operating System:** Windows 10/11, macOS, or Linux (Ubuntu 20.04+).
@@ -162,12 +162,13 @@ flowchart TD
 
 ### 6.2 Clean-Room Reproducibility Runbook (Step-by-Step)
 
-Follow this verified sequence to set up, initialize, test, and evaluate CloudServe in a completely isolated environment:
+Follow this verified sequence to set up, initialize, test, and evaluate CloudServe on a completely fresh machine:
 
 #### 1. Clone Repository
+Clone the repository using Git and navigate into the project directory:
 ```bash
-git clone <repository_url>
-cd CloudServe-AI-Support-System
+git clone https://github.com/Vasishta-Saka/cloudserve-ai-support-system.git
+cd cloudserve-ai-support-system
 ```
 
 #### 2. Create and Activate Virtual Environment
@@ -177,6 +178,14 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
+> [!TIP]
+> **PowerShell Execution Policy Restriction:**
+> If script execution is blocked on Windows (`running scripts is disabled on this system`), allow script execution for the active terminal session:
+> ```powershell
+> Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
+> .\.venv\Scripts\Activate.ps1
+> ```
+
 **Linux / macOS:**
 ```bash
 python3 -m venv .venv
@@ -184,37 +193,55 @@ source .venv/bin/activate
 ```
 
 #### 3. Install Dependencies
+Upgrade `pip` and install both runtime dependencies and development/testing tools:
 ```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt -r requirements-dev.txt
 ```
+*(Both `requirements.txt` and `requirements-dev.txt` are required so that testing frameworks (`pytest`, `pytest-cov`), linters (`ruff`), and type checkers (`mypy`) are available).*
 
 #### 4. Install CloudServe in Editable Mode
-Install the application in editable mode so that imports from `src/cloudserve` resolve consistently across all CLI tools, background runners, and test suites:
+Install CloudServe in editable mode so that imports from `src/cloudserve` resolve reliably across all CLI tools, background runners, and test suites without requiring `PYTHONPATH` adjustments:
 ```bash
-pip install -e .
+python -m pip install -e .
 ```
+*(Skipping this step causes `ModuleNotFoundError: No module named 'cloudserve'` when executing standalone scripts).*
 
 #### 5. Configure Environment Variables
-Copy the template configuration file:
-```bash
+Create your local `.env` configuration file from the provided template:
+```powershell
 # Windows PowerShell
 Copy-Item .env.example .env
+notepad .env
 
 # Linux / macOS
 cp .env.example .env
+nano .env
 ```
-*(For offline mock evaluation and automated tests, no live `GROQ_API_KEY` is required. For live evaluation, configure your Groq API key in `.env`)*.
+- **Offline / Mock Mode:** No changes are required. The pre-configured defaults work out of the box with zero external API calls or quota consumption.
+- **Live LLM Evaluation:** To run live LLM evaluation using Groq, replace the placeholder `GROQ_API_KEY` in `.env` with your actual key:
+  ```ini
+  LLM_PROVIDER=groq
+  GROQ_API_KEY=your_actual_groq_api_key_here
+  GROQ_MODEL=openai/gpt-oss-120b
+  ```
+> [!WARNING]
+> **Credential Security:** Never commit `.env` or share API credentials. The `.env` file is excluded from Git tracking via `.gitignore`.
 
-#### 6. Initialize Knowledge-Base Vector Index (Optional for Smoke Tests, Required for Custom KB)
-If you have an authorized documentation JSON file, chunk and embed the knowledge-base articles into the local ChromaDB vector store:
+#### 6. Initialize Knowledge-Base Vector Index
+Chunk and embed the bundled 29 documentation articles into the local ChromaDB vector store:
 ```bash
-python scripts/index_kb.py --kb-path <path/to/documentation.json> --strategy section_aware
+python scripts/index_kb.py --strategy section_aware
 ```
-*(Note: If no `--kb-path` is passed, the script defaults to `data/kb/documentation.json`. When omitted, the unit test suite still passes 100% using self-contained mock fixtures. If tickets are processed without an indexed KB, the system gracefully falls back to human review hold `draft_for_review` with reason code `MISSING_OR_WEAK_KB_EVIDENCE`).*
+*Expected Output:*
+- Loads 29 documentation articles from `data/kb/documentation.json`.
+- Decomposes articles into 116 section-isolated chunks across 10 platform categories (`account`, `api`, `authentication`, `billing`, `data`, `deployment`, `integration`, `onboarding`, `performance`, `security`).
+- Embeds passages using `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions).
+- Persists vector store to `data/runtime/chroma_db` (collection: `cloudserve_kb`).
+*(To test indexing offline without downloading the Hugging Face model, append `--mock`)*.
 
 #### 7. Verify Application Startup
-Verify end-to-end processing of an inbound ticket via the service factory:
+Confirm end-to-end processing of an inbound ticket via the service factory:
 ```bash
 python -c "from datetime import datetime, timezone; from cloudserve import create_ticket_processor; from cloudserve.ingestion.models import UnifiedTicket, ChannelEnum; p = create_ticket_processor(); r = p.process_ticket(UnifiedTicket(ticket_id='STARTUP-01', channel=ChannelEnum.EMAIL, received_at=datetime.now(timezone.utc), subject='Health check failure', body='Container times out on health check.')); print('Application Startup: SUCCESS | Route:', r.routing_decision.route.value, '| Delivery:', r.delivery_status)"
 ```
@@ -222,16 +249,42 @@ python -c "from datetime import datetime, timezone; from cloudserve import creat
 #### 8. Run Automated Test Suite (A12)
 Execute the complete test suite with statement coverage reporting. All unit tests run in isolation without requiring external network access, API keys, or pre-existing vector store indexes:
 ```bash
-pytest tests/unit --cov=src/cloudserve --cov-report=term
+pytest
 ```
-*Expected result: 452 passed (or 451 passed, 1 skipped if no external KB is indexed), >=90% statement coverage.*
+*Expected result: All automated unit tests passing with >=90% statement coverage (exact test count subject to environment and test configuration).*
 
 #### 9. Run a Mock Smoke Evaluation
-Execute an unattended smoke evaluation on a sample dataset with zero API calls using the included synthetic smoke fixtures:
+Execute an unattended smoke evaluation on a sample fixture with zero API calls using the included synthetic smoke fixtures:
 ```bash
-python scripts/evaluate.py --input data/dev/manual_smoke_1.json --output-dir reports/smoke_eval --mode mock
+python scripts/evaluate.py --input data/dev/manual_smoke_1.json --output-dir reports/smoke_eval --mode mock --overwrite
 ```
-*Expected result: Generates all 9 evaluation artifacts (`summary_metrics.json`, `EVALUATION_REPORT.md`, `audit_reconciliation.json`, etc.) with zero audit reconciliation gap.*
+*Generates all 9 evaluation artifacts in `reports/smoke_eval` with zero audit reconciliation gap.*
+
+#### 10. Run Development Dataset Evaluation (500 Tickets)
+Run unattended evaluation against the complete 500-ticket development benchmark:
+```powershell
+# Offline Mock Mode (instant, zero API cost)
+python scripts/evaluate.py --input data/dev/development_tickets.json --output-dir reports/eval_dev_mock --mode mock --overwrite
+
+# Live LLM Inference Mode (requires valid GROQ_API_KEY in .env)
+python scripts/evaluate.py --input data/dev/development_tickets.json --output-dir reports/eval_dev_live_500 --mode live --overwrite
+```
+
+#### 11. Run Validation Dataset Evaluation (80 Tickets)
+Run unattended evaluation against the 80-ticket validation benchmark:
+```powershell
+# Offline Mock Mode (instant, zero API cost)
+python scripts/evaluate.py --input data/val/validation_tickets.json --output-dir reports/eval_val_mock --mode mock --overwrite
+
+# Live LLM Inference Mode (requires valid GROQ_API_KEY in .env)
+python scripts/evaluate.py --input data/val/validation_tickets.json --output-dir reports/eval_val_live --mode live --overwrite
+```
+
+#### 12. Run Evaluation on Custom Ticket Datasets
+Evaluate arbitrary support datasets by supplying custom input and output paths:
+```powershell
+python scripts/evaluate.py --input path/to/your_tickets.json --output-dir reports/eval_custom --mode mock --overwrite
+```
 
 ---
 
@@ -239,10 +292,14 @@ python scripts/evaluate.py --input data/dev/manual_smoke_1.json --output-dir rep
 
 The system features an automated vector indexing pipeline for customer documentation. 
 
-To initialize the vector index with your own documentation:
-
+To initialize the vector index using the bundled 29 technical documentation articles:
 ```bash
-python scripts/index_kb.py --kb-path <path/to/documentation.json>
+python scripts/index_kb.py --strategy section_aware
+```
+
+To index custom enterprise documentation:
+```bash
+python scripts/index_kb.py --kb-path <path/to/documentation.json> --strategy section_aware
 ```
 
 **Expected JSON Schema for Custom Documentation:**
@@ -266,7 +323,7 @@ python scripts/index_kb.py --kb-path <path/to/documentation.json>
 1. Loads articles from the specified `--kb-path` (defaults to `data/kb/documentation.json`).
 2. Decomposes each article into section-isolated chunks (`Symptoms`, `Common causes`, `Resolution`, `Notes`).
 3. Embeds passages using `all-MiniLM-L6-v2` dense embeddings (384 dimensions).
-4. Persists the vector index to `data/runtime/chroma_db` (or custom `--output-dir`).
+4. Persists the vector index to `data/runtime/chroma_db` (or custom `--persist-dir`).
 
 ---
 
@@ -328,7 +385,7 @@ The evaluation runner (`scripts/evaluate.py`) is an unattended, resumable CLI ha
 | `--resume` | Flag | `False` | Resumes an interrupted run using saved checkpoints in the output directory. |
 | `--retry-failed` | Flag | `False` | When resuming, re-attempts tickets that previously failed with an error. |
 | `--status` | Flag | `False` | Displays checkpoint progress summary for an output directory and exits immediately. |
-| `--ground-truth-responses` | Path | `None` | Optional path to reference responses JSON (defaults to `data/val/ground_truth_responses.json`). |
+| `--ground-truth-responses` | Path | `None` | Optional path to reference responses JSON (defaults to `data/val/ground_truth_responses.json`, which contains 200 reference responses for development tickets). |
 
 ---
 
@@ -426,7 +483,7 @@ All tests run completely offline and require no API keys or live credentials.
 ```bash
 pytest
 ```
-*Expected Output: `452 passed in ~15s`.*
+*Expected Output: All automated unit tests passing (typically ~450+ tests depending on environment configuration and skips).*
 
 ### 10.2 Test Coverage Reporting
 ```bash
@@ -553,12 +610,14 @@ CloudServe-AI-Support-System/
 │       └── ci.yml                      # GitHub Actions CI pipeline
 ├── data/
 │   ├── dev/
-│   │   └── development_tickets.json    # 500 labelled development tickets
+│   │   ├── development_tickets.json    # 500 labelled development tickets
+│   │   ├── manual_smoke_1.json         # 1-ticket synthetic smoke fixture
+│   │   └── manual_smoke_5.json         # 5-ticket multi-intent smoke fixture
 │   ├── kb/
 │   │   └── documentation.json          # 29 official knowledge-base articles
 │   ├── val/
 │   │   ├── validation_tickets.json     # 80 validation tickets
-│   │   └── ground_truth_responses.json # 200 reference responses (evaluation scoring only)
+│   │   └── ground_truth_responses.json # 200 reference responses (mapped to DEV tickets; evaluation scoring only)
 │   └── runtime/                        # SQLite DB & Chroma index (git-ignored)
 ├── docs/
 │   ├── acceptance_criteria.md          # Official A1-A12 criteria mapping
