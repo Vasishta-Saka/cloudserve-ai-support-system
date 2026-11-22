@@ -115,11 +115,6 @@ docs/reference/
 *.xlsx
 *.pdf
 
-# Excluded Academic Benchmark Datasets (Option B: Code-Only Release)
-data/kb/documentation.json
-data/dev/development_tickets.json
-data/val/validation_tickets.json
-data/val/ground_truth_responses.json
 
 # Root Interim Audit & Diagnostic Reports
 A3.*.md
