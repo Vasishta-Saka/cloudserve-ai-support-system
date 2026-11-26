@@ -10,6 +10,7 @@ Usage:
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -93,6 +94,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
             "data/val/ground_truth_responses.json if exists)."
         ),
     )
+    parser.add_argument(
+        "--no-excel",
+        action="store_true",
+        default=False,
+        help="Skip automatic generation of CloudServe_Ticket_Level_Evaluation_Report.xlsx.",
+    )
     return parser.parse_args(args)
 
 
@@ -127,6 +134,12 @@ def main(args: list[str] | None = None) -> int:
             print(f" Quota Error:        {meta.get('quota_error')}")
         print("=" * 68 + "\n")
         return 0
+
+    # Configure optional Excel generation flag
+    if parsed.no_excel:
+        os.environ["CLOUDSERVE_NO_EXCEL"] = "1"
+    else:
+        os.environ.pop("CLOUDSERVE_NO_EXCEL", None)
 
     logger.info("Initializing EvaluationRunner (mode=%s)...", parsed.mode)
     runner = EvaluationRunner()
@@ -191,6 +204,9 @@ def main(args: list[str] | None = None) -> int:
     print(f" Safety Violations:  {pol_sm.get('safety_violations_count', 'N/A')}")
     print("-" * 68)
     print(f" Output Directory:   {result.output_dir}")
+    excel_path = result.output_dir / "CloudServe_Ticket_Level_Evaluation_Report.xlsx"
+    if excel_path.exists():
+        print(f" Excel Report:       {excel_path}")
     print(" Generated Artifacts:")
     print("   - run_metadata.json")
     print("   - audit_reconciliation.json")
@@ -201,6 +217,8 @@ def main(args: list[str] | None = None) -> int:
     print("   - human_review_template.csv")
     print("   - human_review_metadata.json")
     print("   - EVALUATION_REPORT.md")
+    if excel_path.exists():
+        print("   - CloudServe_Ticket_Level_Evaluation_Report.xlsx")
     print("=" * 68 + "\n")
 
     if result.status == "failed":

@@ -13,6 +13,7 @@ Coordinates generation of:
 import csv
 import json
 import logging
+import os
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -482,6 +483,30 @@ def generate_evaluation_artifacts(
     )
     with open(out_dir / "EVALUATION_REPORT.md", "w", encoding="utf-8") as f:
         f.write(report_md)
+
+    # 11. Optional Excel Report Generation (CloudServe_Ticket_Level_Evaluation_Report.xlsx)
+    no_excel = bool(
+        metadata.get("no_excel", False)
+        or os.environ.get("CLOUDSERVE_NO_EXCEL", "").lower() in ("1", "true", "yes")
+    )
+    if not no_excel:
+        try:
+            from cloudserve.evaluation.excel_reporter import export_evaluation_excel
+
+            excel_path = out_dir / "CloudServe_Ticket_Level_Evaluation_Report.xlsx"
+            export_evaluation_excel(
+                output_path=excel_path,
+                results=results,
+                ground_truth=ground_truth,
+                metadata=metadata,
+                summary_metrics=summary_metrics_payload,
+                reconciliation=reconciliation,
+                policy_report=policy_report,
+                answer_quality_report=answer_quality_report,
+            )
+            logger.info("Successfully generated Excel evaluation report: %s", excel_path)
+        except Exception as exc:
+            logger.warning("Optional Excel report export skipped: %s", exc, exc_info=True)
 
     logger.info("Successfully exported all evaluation artifacts to %s", out_dir)
     return summary_metrics_payload

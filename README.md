@@ -53,9 +53,9 @@ Rather than acting as an unconstrained chatbot, CloudServe implements a **multi-
 * **A7: Active Guardrail Response Blocking:** Enforces pre-ingestion PII redaction and post-generation grounding verification to prevent ungrounded outputs.
 * **A8: Persistent Decision Logging:** 100% reconciliation between processed tickets and SQLite decision audit records.
 * **A9: Unattended Evaluation Execution:** Executes unattended batch evaluations across arbitrary datasets using an argument-driven CLI harness.
-* **A10: Automated Metrics Reporting:** Generates comprehensive evaluation reports (`summary_metrics.json`, `EVALUATION_REPORT.md`) without manual post-processing.
+* **A10: Automated Metrics Reporting:** Generates comprehensive evaluation reports (`summary_metrics.json`, `EVALUATION_REPORT.md`, and multi-tab `CloudServe_Ticket_Level_Evaluation_Report.xlsx`) without manual post-processing.
 * **A11: Robust Fault Tolerance:** Gracefully handles provider rate limits (HTTP 429), timeouts, and missing retrieval matches without unhandled crashes.
-* **A12: Single Documented Test Command:** The complete 452-test unit test suite executes via `pytest` with 92% statement coverage.
+* **A12: Single Documented Test Command:** The complete 467-test unit test suite executes via `pytest` with 92% statement coverage.
 
 ---
 
@@ -133,8 +133,9 @@ flowchart TD
 | **Embedding Model** | `sentence-transformers` | `6.3.0` | Local dense embeddings via `all-MiniLM-L6-v2` (384 dimensions). |
 | **Data Validation** | `pydantic` / `pydantic-settings` | `2.14.3` / `2.16.3` | Schema validation, type enforcement, and settings management. |
 | **Persistence Store** | `sqlalchemy` | `2.1.9` | Synchronous SQLite database persistence for decision audits. |
-| **Testing Framework** | `pytest` / `pytest-cov` | `9.2.0` / `7.1.0` | 452 automated unit tests with 92% statement coverage. |
+| **Testing Framework** | `pytest` / `pytest-cov` | `9.2.0` / `7.1.0` | 467 automated unit tests across 17 test files with 92% statement coverage. |
 | **Linting & Types** | `ruff` / `mypy` | `0.17.5` / `2.4.1` | PEP 8 linting, code formatting, and strict type checking. |
+| **Excel Reporting** | `openpyxl` | `3.1.5` | Formatted multi-tab ticket-level evaluation reporting (`.xlsx`). |
 
 ---
 
@@ -258,7 +259,7 @@ Execute an unattended smoke evaluation on a sample fixture with zero API calls u
 ```bash
 python scripts/evaluate.py --input data/dev/manual_smoke_1.json --output-dir reports/smoke_eval --mode mock --overwrite
 ```
-*Generates all 9 evaluation artifacts in `reports/smoke_eval` with zero audit reconciliation gap.*
+*Generates all 10 evaluation artifacts (including `CloudServe_Ticket_Level_Evaluation_Report.xlsx`) in `reports/smoke_eval` with zero audit reconciliation gap.*
 
 #### 10. Run Development Dataset Evaluation (500 Tickets)
 Run unattended evaluation against the complete 500-ticket development benchmark:
@@ -386,6 +387,7 @@ The evaluation runner (`scripts/evaluate.py`) is an unattended, resumable CLI ha
 | `--retry-failed` | Flag | `False` | When resuming, re-attempts tickets that previously failed with an error. |
 | `--status` | Flag | `False` | Displays checkpoint progress summary for an output directory and exits immediately. |
 | `--ground-truth-responses` | Path | `None` | Optional path to reference responses JSON (defaults to `data/val/ground_truth_responses.json`, which contains 200 reference responses for development tickets). |
+| `--no-excel` | Flag | `False` | Skip automatic generation of `CloudServe_Ticket_Level_Evaluation_Report.xlsx`. |
 
 ---
 
@@ -436,7 +438,19 @@ python scripts/evaluate.py `
   --overwrite
 ```
 
-#### Scenario E: Inspecting the Status of a Run
+#### Scenario E: Running Evaluation with Excel Generation Disabled
+For headless continuous integration, high-volume automated runs, or minimal disk I/O, skip Excel workbook generation using `--no-excel`:
+```powershell
+python scripts/evaluate.py `
+  --input data/val/validation_tickets.json `
+  --output-dir reports/eval_val_mock `
+  --mode mock `
+  --no-excel `
+  --overwrite
+```
+*(Alternatively, set the environment variable `$env:CLOUDSERVE_NO_EXCEL="1"` or `export CLOUDSERVE_NO_EXCEL=1`).*
+
+#### Scenario F: Inspecting the Status of a Run
 To inspect the progress or completion status of an evaluation directory without running inference:
 ```powershell
 python scripts/evaluate.py `
@@ -445,7 +459,7 @@ python scripts/evaluate.py `
   --status
 ```
 
-#### Scenario F: Resuming an Interrupted Evaluation
+#### Scenario G: Resuming an Interrupted Evaluation
 If an evaluation run was halted by network failure or rate limiting:
 ```powershell
 python scripts/evaluate.py `
@@ -455,7 +469,7 @@ python scripts/evaluate.py `
   --resume
 ```
 
-#### Scenario G: Resuming and Retrying Failed Tickets
+#### Scenario H: Resuming and Retrying Failed Tickets
 ```powershell
 python scripts/evaluate.py `
   --input data/val/validation_tickets.json `
@@ -475,6 +489,56 @@ python scripts/evaluate.py `
 
 ---
 
+### 9.5 Automatic Ticket-Level Excel Evaluation Reporting
+
+Whenever an evaluation run completes (whether in `--mode mock` or `--mode live`), CloudServe automatically exports a formatted multi-sheet Excel evaluation workbook alongside the standard JSON, JSONL, and Markdown artifacts:
+
+- **Output File:** `CloudServe_Ticket_Level_Evaluation_Report.xlsx`
+- **Output Location:** Directly within the active `--output-dir` (e.g. `reports/eval_val_live/CloudServe_Ticket_Level_Evaluation_Report.xlsx`).
+- **Integration Architecture:** Generated in Step 11 of the evaluation artifact export pipeline (`src/cloudserve/evaluation/reporter.py`) via the dedicated workbook builder in `src/cloudserve/evaluation/excel_reporter.py`. Workbook export is fail-safe and wrapped in exception handling so that any unexpected formatting error will never interrupt or corrupt core evaluation artifact generation.
+
+The workbook contains three distinct, professionally formatted worksheets:
+
+#### 1. Evaluation Summary (Executive Dashboard)
+Provides an executive overview of batch performance, routing fidelity, and system safety:
+- **KPI Summary Scorecard:** Total evaluated tickets, Intent Accuracy & Macro-F1, Urgency Accuracy & Macro-F1, Corpus Retrieval Hit Rate @ 1, Hit Rate @ 4, MRR, Citation Validity Rate, Mandatory Escalation Recall, and Release Safety.
+- **Routing Decision Distribution:** Full frequency breakdown across all PRD v2.0 routing decisions (`auto_respond`, `draft_for_review`, `escalate_specialist`, `escalate_security`, `escalate_ops`, `hold_unclear_request`, `hold_conflicting_policy`).
+- **Response Release & Safety Audit:** Counts of customer-released responses, held drafts, unsafe releases, and guardrail violations.
+- **Processing Latency Percentiles:** Mean, Median (P50), P90, P95, and P99 execution latencies in milliseconds.
+- **Audit Ledger Reconciliation:** Reconciliation check reporting whether processed tickets match persistent SQLite audit database records for the evaluation run.
+
+#### 2. Ticket-Level Evaluation (Granular 43-Column Matrix)
+Contains one styled row per evaluated ticket with frozen headers, alternating row colors, wrapped text, and calibrated number formatting across 7 functional groups:
+- **Inbound Inquiry Metadata (Cols 1–5):** `Ticket ID`, `Channel` (Email, Chat, Forum, Docs), `Customer Tier`, `Customer Subject`, `Customer Question / Body`.
+- **Classification & Calibration (Cols 6–13):** `Predicted Intent`, `Expected Intent`, `Intent Confidence` ($[0.0, 1.0]$), `Intent Match` (`TRUE`/`FALSE`), `Predicted Urgency`, `Expected Urgency`, `Urgency Confidence`, `Urgency Match`.
+- **Input Safety & Guardrails (Cols 14–18):** `Input Guardrail Status` (`PASSED` or `BLOCKED`), `Guardrail Violation Category` (e.g. `PROMPT_INJECTION`, `PII_VIOLATION`, or `NONE`), `Prompt Injection Detection Status` (`DETECTED` or `NOT_DETECTED`), `PII Detection Status` (`NOT_INSTRUMENTED` or detection flag), `Guardrails Passed` (`TRUE`/`FALSE`).
+- **Knowledge-Base Retrieval (Cols 19–24):** `Retrieved Article IDs` (pipe-separated), `Top Retrieved Chunk ID`, `Top Retrieval Similarity Score`, `All Retrieved Chunk IDs`, `All Retrieved Similarity Scores`, `Retrieved Context Excerpt`.
+- **Response Synthesis & Citations (Cols 25–30):** `Candidate Response Generated` (`YES`/`NO`), `Candidate Response Text` (actual LLM response text, preserved empty for bypassed tickets), `Candidate Response Word Count`, `Response Citation IDs`, `Citations Verified` (`YES`, `NO`, or `N/A`), `Citation Validation Details` (`ALL_VALID`, specific invalid IDs, or review reason).
+- **Routing & Delivery Decision (Cols 31–37):** `Routing Decision`, `Routing Reason Code`, `Routing Reason Description`, `Target Specialist Group`, `Delivery Status`, `Final Response Released to Customer` (`YES`/`NO`), `Review Hold Reason`.
+- **Execution & Audit Metadata (Cols 38–43):** `Processing Latency (ms)`, `Persistence Status`, `Audit ID`, `Execution Timestamp` (UTC ISO 8601), `Evaluation Mode` (`live` or `mock`), `Notes / Observations`.
+
+#### 3. Data Sources & Dictionary
+Provides authoritative documentation for assessors and auditors:
+- **43-Field Data Dictionary:** Column name, formal description, data type, and allowed values/ranges.
+- **Dataset Provenance:** Input benchmark dataset path, evaluated ticket count, and SHA-256 dataset integrity hash.
+- **Evaluation Provenance:** Unique Run ID, execution timestamp, LLM provider, inference model, and embedding model.
+- **Policy Reference:** Summary of PRD v2.0 deterministic routing precedence rules and escalation gates.
+
+#### Disabling Excel Generation
+To disable Excel workbook export:
+- **CLI Flag:** Append `--no-excel` to `scripts/evaluate.py`.
+- **Environment Variable:** Set `CLOUDSERVE_NO_EXCEL=1` (or `true` / `yes`).
+
+**Recommended Use Cases for Disabling:**
+1. **Headless CI/CD Pipelines:** When automated build jobs only need to verify exit codes or upload JSON artifacts.
+2. **High-Throughput Batch Evaluations:** To eliminate openpyxl formatting overhead during high-volume testing or parameter sweeps.
+3. **Restricted Storage Environments:** Where binary spreadsheet formats (`.xlsx`) are prohibited or unnecessary.
+
+> [!NOTE]
+> Disabling Excel generation omits *only* `CloudServe_Ticket_Level_Evaluation_Report.xlsx`. All 9 standard JSON, JSONL, CSV, and Markdown evaluation artifacts continue to be exported normally.
+
+---
+
 ## 10. Automated Testing & Quality Verification
 
 All tests run completely offline and require no API keys or live credentials.
@@ -483,13 +547,14 @@ All tests run completely offline and require no API keys or live credentials.
 ```bash
 pytest
 ```
-*Expected Output: All automated unit tests passing (typically ~450+ tests depending on environment configuration and skips).*
+*Expected Output: All 467 automated unit tests passing across 17 test files with 92% statement coverage (0 failed, 0 skipped).*
+*(The core support system comprises 453 baseline unit tests; the addition of `tests/unit/test_excel_reporter.py` adds 14 comprehensive unit tests for Excel workbook generation, bringing the total suite to 467 tests).*
 
 ### 10.2 Test Coverage Reporting
 ```bash
 pytest --cov=src/cloudserve --cov-report=term-missing
 ```
-*Expected Output: `TOTAL Cover: 92%` across 4,492 statements.*
+*Expected Output: `TOTAL Cover: 92%` across statement-monitored source files.*
 
 ### 10.3 Static Code Quality & Linting (Ruff)
 ```bash
@@ -501,7 +566,14 @@ ruff check .
 ```bash
 mypy src
 ```
-*Expected Output: `Success: no issues found in 18 source files`.*
+*Expected Output: `Success: no issues found in 43 source files`.*
+
+### 10.5 Excel Reporter Test Suite
+Execute the dedicated unit test suite for the Excel reporting engine:
+```bash
+pytest tests/unit/test_excel_reporter.py -v
+```
+*Expected Output: All 14 tests passing in ~2.5s (100% pass rate) with 94% statement coverage on `src/cloudserve/evaluation/excel_reporter.py`.*
 
 ---
 
@@ -562,6 +634,7 @@ When `scripts/evaluate.py` runs, it generates the following standardized artifac
 | `human_review_template.csv` | CSV | Blinded scoring sheet pre-formatted for two independent human reviewers. |
 | `run_metadata.json` | JSON | Run provenance (timestamps, dataset hash, model versions, thresholds). |
 | `audit_reconciliation.json` | JSON | Verification that all processed tickets reconcile 1:1 with SQLite database logs. |
+| `CloudServe_Ticket_Level_Evaluation_Report.xlsx` | XLSX | Multi-tab workbook: Evaluation Summary, 43-column Ticket-Level Evaluation, and Data Dictionary. *(Omitted when `--no-excel` or `CLOUDSERVE_NO_EXCEL=1` is specified).* |
 
 ---
 
@@ -646,7 +719,7 @@ CloudServe-AI-Support-System/
 │   └── cloudserve/                     # Core application source code
 │       ├── api/                        # REST API routing
 │       ├── classification/             # Intent and urgency classifiers
-│       ├── evaluation/                 # Metrics, policy eval, answer quality, human review
+│       ├── evaluation/                 # Metrics, policy eval, answer quality, human review, Excel reporter
 │       ├── generation/                 # LLM clients, grounding, response generator
 │       ├── guardrails/                 # Safety scanning & PII redaction
 │       ├── ingestion/                  # Channel normalizers (Email, Chat, Forum, Docs)
@@ -657,7 +730,7 @@ CloudServe-AI-Support-System/
 │       └── service.py                  # End-to-end support service orchestration
 ├── tests/
 │   ├── conftest.py
-│   └── unit/                           # 452 automated unit tests (A12)
+│   └── unit/                           # 467 automated unit tests across 17 test files (A12)
 ├── .env.example                        # Safe environment template with placeholder values
 ├── .gitignore                          # Comprehensive exclusions for venv, runtime db, chroma
 ├── pyproject.toml                      # Modern packaging configuration (PEP 518/621)
